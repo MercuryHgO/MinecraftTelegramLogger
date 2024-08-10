@@ -83,7 +83,11 @@ async fn send_telegram_message(
     chat_id: &str,
     message: &str
 ) {
-    let client = Client::new();
+    let client = Client::builder()
+        .danger_accept_invalid.certs(true)
+        .build()
+        .expect("Error building client");
+
     let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
     let params = json!({
         "chat_id": chat_id,
