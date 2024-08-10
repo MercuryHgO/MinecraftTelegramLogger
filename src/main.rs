@@ -84,7 +84,7 @@ async fn send_telegram_message(
     message: &str
 ) {
     let client = Client::builder()
-        .danger_accept_invalid.certs(true)
+        .danger_accept_invalid_certs(true)
         .build()
         .expect("Error building client");
 
