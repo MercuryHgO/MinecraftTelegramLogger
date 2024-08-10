@@ -1,0 +1,10 @@
+[package]
+name = "minecraft_telegram_logger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+regex = "1.10.6"
+reqwest = {version = "0.12.5", features = [ "json", "native-tls-vendored"]}
+serde_json = "1.0.122"
+tokio = {version = "1.39.2", features = ["full"]}
