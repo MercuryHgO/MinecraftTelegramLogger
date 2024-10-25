@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{thread, format};
+use notify::{Watcher, Config};
 use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
@@ -21,60 +22,60 @@ async fn main() {
     let join_regex = Regex::new(r"\[Server thread\/INFO\]: (.*) joined the game").unwrap();
     let quit_regex = Regex::new(r"\[Server thread\/INFO\]: (.*) left the game").unwrap();
 
-    // Open the log file
-    let file = File::open(log_path).expect("Could not open log file");
-    let mut reader = BufReader::new(file);
-    
-    // Seek to the end of the file to start reading new entries
-    let mut last_position = reader.seek(SeekFrom::End(0)).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let mut watcher = notify::recommended_watcher(tx).unwrap();
+
+    watcher.watch(Path::new(log_path), notify::RecursiveMode::Recursive).unwrap();
 
     loop {
-        // Read the log file line by line
-        let mut buffer = String::new();
-        let bytes_read = reader.read_line(&mut buffer).unwrap();
-
-        // If we reached the end of the file, wait and check again
-        if bytes_read == 0 {
-            thread::sleep(Duration::from_millis(100));
-            // Seek to the last position to continue reading new entries
-            reader.seek(SeekFrom::Start(last_position)).unwrap();
-            continue;
-        }
-
-        // Update the last position
-        last_position += bytes_read as u64;
-
-        // Check for player join
-        if let Some(captures) = join_regex.captures(&buffer) {
-            if let Some(player_name) = captures.get(0) {
-                send_telegram_message(
-                    &bot_token, 
-                    &chat_id, 
-                    &format!(
-                        "Player joined: {} \n", player_name.as_str())
-                    )
-                        .await;
-
-                println!("Player joined: {}", player_name.as_str());
+        match rx.recv() {
+            Ok(event) => {
+                if let Some(path) = event.unwrap().paths.get(0) {
+                    if path.to_string_lossy() == log_path {
+                        // Read the new lines from the log file
+                        process_log_file(&log_path, &join_regex, &quit_regex, &bot_token, &chat_id).await;
+                    }
+                }
             }
+            Err(e) => eprintln!("Watch error: {:?}", e),
         }
+    }
+}
 
-        // Check for player quit
-        if let Some(captures) = quit_regex.captures(&buffer) {
-            if let Some(player_name) = captures.get(0) {
-                send_telegram_message(
-                    &bot_token, 
-                    &chat_id,
-                    &format!(
-                        "Player left: {}", player_name.as_str()
-                    )
-                ).await;
-                println!("Player left: {}", player_name.as_str());
+async fn process_log_file(log_path: &str, join_regex: &Regex, quit_regex: &Regex, bot_token: &str, chat_id: &str) {
+    let file = File::open(log_path).expect("Could not open log file");
+    let reader = BufReader::new(file);
+    
+    for line in reader.lines() {
+        match line {
+            Ok(buffer) => {
+                // Check for player join
+                if let Some(captures) = join_regex.captures(&buffer) {
+                    if let Some(player_name) = captures.get(1) {
+                        send_telegram_message(
+                            bot_token,
+                            chat_id,
+                            &format!("Player joined: {}", player_name.as_str())
+                        ).await;
+                        println!("Player joined: {}", player_name.as_str());
+                    }
+                }
+
+                // Check for player quit
+                if let Some(captures) = quit_regex.captures(&buffer) {
+                    if let Some(player_name) = captures.get(1) {
+                        send_telegram_message(
+                            bot_token,
+                            chat_id,
+                            &format!("Player left: {}", player_name.as_str())
+                        ).await;
+                        println!("Player left: {}", player_name.as_str());
+                    }
+                }
             }
+            Err(e) => eprintln!("Error reading line: {:?}", e),
         }
-
-        // Sleep for a short duration to avoid busy waiting
-        thread::sleep(Duration::from_millis(100));
     }
 }
 
